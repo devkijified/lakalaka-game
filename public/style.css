@@ -1,0 +1,121 @@
+/* Lakalaka styles. Kijitech style: mobile first, primary actions visible on arrival. */
+/* Font files will be self hosted before public launch. Display stack uses Aeonik Pro and Figtree with system fallbacks, body uses Figtree with system fallbacks. */
+:root {
+  --ground: #2b2018;
+  --ground-2: #3a2b1e;
+  --chalk: #f5efe2;
+  --chalk-dim: rgba(245, 239, 226, 0.55);
+  --accent: #ffc857;
+  --good: #39c2a5;
+  --bad: #ff6b4a;
+  --card: #fffaf0;
+  --ink: #241a12;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: "Figtree", system-ui, -apple-system, sans-serif;
+  font-size: 16px; line-height: 1.45;
+  background: var(--ground); color: var(--chalk);
+  min-height: 100vh;
+}
+h1, h2, .room-code-big, button, .turn-banner { font-family: "Aeonik Pro", "Figtree", system-ui, sans-serif; }
+.topbar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 16px 8px; max-width: 560px; margin: 0 auto;
+}
+.topbar h1 { font-size: 30px; margin: 0; letter-spacing: 0.5px; color: var(--accent); }
+.subtitle { margin: 2px 0 0; font-size: 14px; color: var(--chalk-dim); }
+.room-badge { font-size: 14px; background: var(--ground-2); border: 1.5px dashed var(--chalk-dim); border-radius: 999px; padding: 6px 12px; }
+main { max-width: 560px; margin: 0 auto; padding: 8px 16px 32px; }
+.hidden { display: none !important; }
+.intro { font-size: 15px; color: var(--chalk); }
+.field { display: block; font-size: 14px; margin: 14px 0 8px; color: var(--chalk-dim); }
+.field input {
+  display: block; width: 100%; margin-top: 6px; padding: 13px 14px;
+  font-size: 16px; border-radius: 10px; border: 1.5px solid var(--chalk-dim);
+  background: #fffaf0; color: var(--ink);
+}
+.code-input { text-transform: uppercase; letter-spacing: 4px; font-weight: 700; }
+button.primary {
+  display: block; width: 100%; padding: 15px; margin-top: 12px;
+  font-size: 17px; font-weight: 700; border: none; border-radius: 12px;
+  background: var(--accent); color: var(--ink); cursor: pointer; min-height: 52px;
+}
+button.secondary {
+  display: block; width: 100%; padding: 14px; margin-top: 8px;
+  font-size: 16px; font-weight: 700; border-radius: 12px;
+  background: transparent; color: var(--chalk); border: 2px solid var(--chalk); cursor: pointer; min-height: 50px;
+}
+button.ghost {
+  display: block; width: 100%; padding: 12px; margin-top: 18px;
+  font-size: 14px; border-radius: 10px; background: transparent;
+  color: var(--chalk-dim); border: 1px solid var(--chalk-dim); cursor: pointer;
+}
+button:disabled { opacity: 0.45; cursor: default; }
+.divider { display: flex; align-items: center; gap: 10px; margin: 20px 0 4px; color: var(--chalk-dim); font-size: 13px; }
+.divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid var(--chalk-dim); }
+.error { color: #ffb09d; font-size: 14px; min-height: 20px; }
+.meta { font-size: 13px; color: var(--chalk-dim); }
+.room-panel { margin-top: 22px; background: var(--ground-2); border: 1.5px dashed var(--chalk-dim); border-radius: 14px; padding: 16px; }
+.room-code-big { font-size: 40px; letter-spacing: 10px; margin: 4px 0 12px; color: var(--accent); }
+.player-list, .score-list { list-style: none; padding: 0; margin: 8px 0; }
+.player-list li, .score-list li {
+  display: flex; align-items: center; gap: 10px; padding: 9px 10px;
+  background: rgba(255, 250, 240, 0.07); border-radius: 10px; margin-bottom: 6px; font-size: 15px;
+}
+.dot { width: 14px; height: 14px; border-radius: 50%; flex: none; border: 2px solid rgba(0,0,0,0.25); }
+.offline { opacity: 0.5; }
+.tag { font-size: 11px; background: var(--accent); color: var(--ink); border-radius: 999px; padding: 2px 8px; font-weight: 700; }
+.score-list li { font-size: 14px; padding: 6px 10px; }
+.howto { margin-top: 24px; font-size: 14px; color: var(--chalk-dim); }
+.howto summary { cursor: pointer; color: var(--chalk); font-size: 15px; }
+.howto li { margin-bottom: 6px; }
+
+.turn-banner { font-size: 17px; font-weight: 700; background: var(--ground-2); border-left: 5px solid var(--accent); padding: 7px 12px; border-radius: 8px; }
+.message { font-size: 14px; min-height: 19px; margin: 5px 0 0; }
+.score-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
+.score-list li { flex: 1 1 42%; margin-bottom: 0; padding: 5px 9px; font-size: 13px; line-height: 1.3; }
+/* While a game is live the header compacts to one row, so the court and the
+   figure own the phone screen. Room code stays in the badge, turn state and
+   players stay directly under it. */
+body.in-game .topbar { padding: 8px 16px 2px; align-items: center; }
+body.in-game .topbar h1 { font-size: 22px; }
+body.in-game .subtitle { display: none; }
+body.in-game main { padding-top: 2px; }
+body.in-game .room-badge { padding: 4px 10px; }
+/* The 3D court: a WebGL canvas in perspective, portrait first. It fills the
+   width of the phone and the figure stands on the ground plane inside it. */
+.court3d {
+  position: relative; width: 100%; height: min(66vh, 620px); min-height: 480px;
+  margin: 8px 0 4px; border-radius: 14px; overflow: hidden;
+  background: #e8d7b8;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(245, 239, 226, 0.14);
+  touch-action: manipulation;
+}
+.court3d canvas { display: block; width: 100%; height: 100%; }
+.label-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.fig-label {
+  position: absolute; left: 0; top: 0; white-space: nowrap;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.2px;
+  background: rgba(23, 16, 11, 0.78); border: 1.5px solid var(--accent);
+  padding: 2px 9px; border-radius: 999px; color: var(--chalk);
+  will-change: transform;
+}
+.controls {
+  margin-top: 8px; position: sticky; bottom: 0; z-index: 8;
+  background: rgba(43, 32, 24, 0.96); padding: 10px 2px 12px;
+  border-top: 1px solid rgba(245, 239, 226, 0.16);
+  backdrop-filter: blur(3px);
+}
+.meter { position: relative; height: 26px; background: #17100b; border: 2px solid var(--chalk-dim); border-radius: 999px; overflow: hidden; }
+.meter-zone { position: absolute; top: 0; bottom: 0; left: 42%; width: 16%; background: var(--good); opacity: 0.85; }
+.meter-zone::before { content: ""; position: absolute; top: 0; bottom: 0; left: -7%; width: 7%; background: #e8d44d; opacity: 0.6; }
+.meter-zone::after { content: ""; position: absolute; top: 0; bottom: 0; right: -7%; width: 7%; background: #e8d44d; opacity: 0.6; }
+.meter-needle { position: absolute; top: 0; bottom: 0; width: 4px; background: #fff; left: 0%; }
+.house-marker { font-size: 16px; }
+
+@media (min-width: 700px) {
+  .court3d { height: 580px; }
+  .topbar h1 { font-size: 34px; }
+}

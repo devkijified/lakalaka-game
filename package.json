@@ -1,0 +1,1 @@
+{"dependencies":{"three":"^0.186.1","ws":"^8.18.0"},"description":"Lakalaka, a browser multiplayer Suwe tile game for 2 to 4 real players.","main":"server.js","name":"lakalaka-game","scripts":{"start":"node server.js","test":"node test-multiplayer.mjs"},"type":"commonjs","version":"1.0.0"}
