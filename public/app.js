@@ -72,9 +72,9 @@ function driveSim(prev, next) {
   const foulMsg = next.message && next.message.indexOf('Foul:') === 0;
   const me = (r) => r.players.find((p) => p.id === r.turnPlayerId);
   if (prev.phase === 'throw' && next.phase === 'hop') {
-    simDo('playThrow', next.seedBox);
+    simDo('playThrow', next.seedBox, next.lastThrow && next.lastThrow.power);
   } else if (prev.phase === 'throw' && next.phase === 'throw' && foulMsg && next.turnPlayerId !== prev.turnPlayerId) {
-    simDo('playThrowFoul', prev.targetBox || (me(prev) ? me(prev).stage : 1));
+    simDo('playThrowFoul', prev.targetBox || (me(prev) ? me(prev).stage : 1), next.lastThrow && next.lastThrow.power);
   } else if (prev.phase === 'hop' && next.phase === 'hop' && next.seqIndex > prev.seqIndex) {
     const box = prev.sequence[prev.seqIndex];
     const ownerId = next.houses ? next.houses[box] : null;
@@ -109,16 +109,18 @@ $('startBtn').addEventListener('click', () => send({ type: 'start_game' }));
 $('leaveBtn').addEventListener('click', () => { send({ type: 'leave' }); location.reload(); });
 $('playAgainBtn').addEventListener('click', () => send({ type: 'play_again' }));
 
-// Power meter: oscillates 0 to 100 and back.
+// Power meter: oscillates 0 to 100 and back. One full sweep takes about
+// 2.5 seconds, so the green middle stays under the needle for about
+// 0.4 seconds: a skill shot a player can actually time on a phone.
 let power = 0; let powerDir = 1; let meterTimer = null;
 function startMeter() {
   stopMeter(); power = 0; powerDir = 1;
   meterTimer = setInterval(() => {
-    power += powerDir * 2;
+    power += powerDir * 0.8;
     if (power >= 100) { power = 100; powerDir = -1; }
     if (power <= 0) { power = 0; powerDir = 1; }
     $('meterNeedle').style.left = power + '%';
-  }, 24);
+  }, 20);
 }
 function stopMeter() { if (meterTimer) { clearInterval(meterTimer); meterTimer = null; } }
 $('throwBtn').addEventListener('click', () => {
@@ -133,7 +135,7 @@ function startMarker() {
   markerTimer = setInterval(() => {
     markerBox = markerBox >= 6 ? 1 : markerBox + 1;
     $('houseMarkerBox').textContent = markerBox;
-  }, 160);
+  }, 220);
 }
 function stopMarker() { if (markerTimer) { clearInterval(markerTimer); markerTimer = null; } }
 $('claimBtn').addEventListener('click', () => {

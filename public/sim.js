@@ -483,7 +483,7 @@ function makeLabel() {
 // at rest is x about 1.3 (swung down), and arms out for balance is x near 0.
 const P = {
   idle: { pelvisY: 0, pelvisZ: 0, spine: [0.03, 0, 0], chest: [0, 0, 0], head: [0.06, 0, 0], shL: [1.3, 0, -0.07], elL: [0.22, 0, 0], shR: [1.3, 0, 0.07], elR: [0.22, 0, 0], hipL: [0.02, 0, 0], kneeL: [-0.04, 0, 0], ankL: [0, 0, 0], hipR: [-0.02, 0, 0], kneeR: [-0.04, 0, 0], ankR: [0, 0, 0] },
-  oneleg: { pelvisY: -0.01, pelvisZ: 0.03, spine: [0.05, 0, 0], chest: [0, 0, 0], head: [0.05, 0, 0], shL: [0.3, 0, -0.3], elL: [0.15, 0, 0], shR: [0.3, 0, 0.3], elR: [0.15, 0, 0], hipL: [0.05, 0, 0], kneeL: [-0.08, 0, 0], ankL: [-0.05, 0, 0], hipR: [-0.55, 0, 0], kneeR: [-1.45, 0, 0], ankR: [-0.3, 0, 0] },
+  oneleg: { pelvisY: -0.01, pelvisZ: 0.03, spine: [0.05, 0, 0], chest: [0, 0, 0], head: [0.05, 0, 0], shL: [0.8, 0, -0.22], elL: [0.15, 0, 0], shR: [0.8, 0, 0.22], elR: [0.15, 0, 0], hipL: [0.05, 0, 0], kneeL: [-0.08, 0, 0], ankL: [-0.05, 0, 0], hipR: [-0.55, 0, 0], kneeR: [-1.45, 0, 0], ankR: [-0.3, 0, 0] },
   rest: { pelvisY: -0.005, pelvisZ: 0, spine: [0.02, 0, 0], chest: [0, 0, 0], head: [0.02, 0, 0], shL: [1.02, 0, -0.18], elL: [0.6, 0, 0], shR: [1.02, 0, 0.18], elR: [0.6, 0, 0], hipL: [0.03, 0, 0], kneeL: [-0.05, 0, 0], ankL: [0, 0, 0], hipR: [-0.03, 0, 0], kneeR: [-0.05, 0, 0], ankR: [0, 0, 0] }
 };
 const JOINTS = ['spine', 'chest', 'head', 'shL', 'elL', 'shR', 'elR', 'hipL', 'kneeL', 'ankL', 'hipR', 'kneeR', 'ankR'];
@@ -518,7 +518,9 @@ const sim = {
   tweens: [],               // stone flights and camera style one offs
   turnPlayerId: null,
   phase: 'throw',
-  lastRoom: null
+  lastRoom: null,
+  lastHopTarget: null,      // box the previous hop (in call order) landed in
+  lastHopDir: 0             // travel direction of that hop, for pivot detection
 };
 
 function boxCentre(box) { const p = BOX_POS[box]; return new THREE.Vector3(p.x, 0, p.z); }
@@ -529,6 +531,7 @@ function pump() {
   sim.anim = sim.queue.shift();
   sim.anim.t = 0;
   sim.poseName = sim.anim.name;
+  if (sim.anim.onStart) sim.anim.onStart(sim.anim);
 }
 function poseAt(anim, k) {
   const fr = anim.frames;
@@ -560,12 +563,19 @@ function reconcile() {
 // Turn the figure toward a travel direction during the opening of an anim.
 function faceAngle(from, to) { return Math.atan2(to.x - from.x, to.z - from.z); }
 function shortArc(a, b) { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return a + d; }
+function angDiff(a, b) { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return Math.abs(d); }
 
 function playAnim(name, dur, frames, travel, onDone, extra) {
   enqueue(Object.assign({ name, dur, frames, travel: travel || null, onDone, flags: {} }, extra || {}));
 }
 
-// A timed stone flight: parabola from a start point to a box, bounce, settle.
+// A timed stone flight: parabola from a start point to a box, bounce,
+// settle. Used by the house claim back throw only (regular throws fly
+// power-true via flyStoneThrown). NOTE on units: the tick passes dt in
+// seconds while dur is milliseconds, so accumulate dt * 1000. As shipped
+// in v3 this line added raw seconds, which made the claim stone take
+// about 12 minutes to land and wedged the resting stone logic behind
+// the never-ending tween; the fix restores the authored timing only.
 function flyStone(from, toBox, peak, dur, settleBox) {
   const target = boxCentre(toBox);
   target.x += (Math.random() - 0.5) * 0.2; target.z += (Math.random() - 0.5) * 0.2;
@@ -573,7 +583,7 @@ function flyStone(from, toBox, peak, dur, settleBox) {
   sim.tweens.push({
     t: 0, dur, landed: false,
     update(dt, tw) {
-      tw.t += dt;
+      tw.t += dt * 1000;
       const k = Math.min(1, tw.t / tw.dur);
       if (!tw.landed) {
         stone.position.lerpVectors(start, new THREE.Vector3(target.x, 0.045, target.z), k);
@@ -590,15 +600,101 @@ function flyStone(from, toBox, peak, dur, settleBox) {
     }
   });
 }
+// Where a throw of the given power actually lands, measured from real Suwe
+// footage: the seed is a gentle underhand lob and it lands true to the
+// power. The landing point is the target box centre pushed along the throw
+// direction (start edge to box centre) by an offset from the power's
+// deviation d = power - 50: |d| up to 8 stays inside the box, hugging the
+// edge more as |d| grows; |d| 8 to 15 lands ON the chalk line; beyond that
+// it falls short of or sails past the box into the dirt. The spec's 0.475
+// is the centre to edge distance of a box on an axial throw; here the true
+// edge distance along the (slightly diagonal) throw line is computed from
+// the box geometry so line landings sit on the visible chalk.
+function throwLanding(targetBox, power) {
+  const centre = boxCentre(targetBox);
+  const dir = new THREE.Vector3(centre.x - START.x, 0, centre.z - START.z).normalize();
+  const edge = Math.min(
+    Math.abs(dir.x) > 1e-4 ? (BOXW / 2) / Math.abs(dir.x) : Infinity,
+    Math.abs(dir.z) > 1e-4 ? (BOXW / 2) / Math.abs(dir.z) : Infinity
+  );
+  const d = power - 50, ad = Math.abs(d);
+  let off;
+  if (ad <= 15) {
+    const base = ad <= 8 ? ad * (0.30 / 8) : 0.30 + (ad - 8) * (0.175 / 7);
+    off = base * (edge / 0.475);
+  } else {
+    off = edge + (ad - 15) * 0.032;
+  }
+  off *= Math.sign(d);
+  // Tiny deterministic sideways scatter, except on a line landing, where
+  // the seed must sit squarely on the chalk.
+  const isLine = ad > 8 && ad <= 15;
+  const lat = isLine ? 0 : Math.sin(power * 12.9898) * 0.03;
+  const land = centre.clone();
+  land.x += dir.x * off - dir.z * lat;
+  land.z += dir.z * off + dir.x * lat;
+  land.y = 0;
+  return { land, dir };
+}
+
+// The power-true stone flight for throws (the claim keeps flyStone). A low
+// flat lob: release at the wrist, apex a little above release height,
+// flight 0.42 to 0.72 s scaled by distance, and on dirt the seed STOPS
+// DEAD, no bounce chain, no roll. Only a hard miss (|d| over 15) skids a
+// few centimetres along the throw line as it stops.
+function flyStoneThrown(from, targetBox, power, settleBox) {
+  const { land, dir } = throwLanding(targetBox, power);
+  const start = from.clone();
+  const dist = Math.hypot(land.x - start.x, land.z - start.z);
+  const apex = THREE.MathUtils.clamp(0.16 + dist * 0.11, 0.22, 0.55);
+  const durMs = THREE.MathUtils.clamp(0.34 + dist * 0.11, 0.42, 0.72) * 1000;
+  const skid = Math.abs(power - 50) > 15 ? 0.08 : 0;
+  sim.tweens.push({
+    t: 0, dur: durMs, landed: false,
+    update(dt, tw) {
+      tw.t += dt * 1000;
+      if (!tw.landed) {
+        const k = Math.min(1, tw.t / tw.dur);
+        stone.position.x = start.x + (land.x - start.x) * k;
+        stone.position.z = start.z + (land.z - start.z) * k;
+        // Parabola whose crest sits exactly `apex` above the release height.
+        const linY = start.y + (0.045 - start.y) * k;
+        stone.position.y = linY + Math.sin(k * Math.PI) * (apex + Math.max(0, (start.y - 0.045) / 2));
+        stone.rotation.x += dt * 6; stone.rotation.z += dt * 4;
+        if (k >= 1) {
+          stone.position.set(land.x, 0.045, land.z);
+          puffDust(land.x, land.z, 0.55);
+          if (!skid) { sim.stoneBox = settleBox; return true; }
+          tw.landed = true; tw.t = 0; tw.dur = 150;
+        }
+        return false;
+      }
+      // Skid: continue along the throw line, decaying, then dead stop.
+      const k = Math.min(1, tw.t / tw.dur);
+      const e = 1 - Math.pow(1 - k, 2);
+      stone.position.x = land.x + dir.x * skid * e;
+      stone.position.z = land.z + dir.z * skid * e;
+      stone.position.y = 0.045;
+      if (k >= 1) { sim.stoneBox = settleBox; return true; }
+      return false;
+    }
+  });
+}
 function wristWorld(fig) { const v = new THREE.Vector3(); if (fig.handR) fig.handR.getWorldPosition(v); else v.copy(fig.root.position).setY(1.1); return v; }
 function headTopWorld(fig) { const v = new THREE.Vector3(); if (fig.head) fig.head.getWorldPosition(v); else v.copy(fig.root.position).setY(1.6); v.y += 0.24; return v; }
 
 // --- Moves -----------------------------------------------------------------
-function animThrow(targetBox, clean) {
+function animThrow(targetBox, clean, power) {
+  const p = (power === undefined || power === null || isNaN(power)) ? (clean ? 50 : 20) : power;
   const base = P.oneleg && sim.stance === 'oneleg' ? P.oneleg : P.idle;
-  const crouch = mergePose(base, { pelvisY: -0.07, spine: [0.26, 0, 0], chest: [0.1, 0, 0], head: [0.12, 0, 0], shR: [1.5, 0, 0.45], elR: [0.45, 0, 0], shL: [0.95, 0, -0.15], elL: [0.3, 0, 0], hipL: [0.34, 0, 0], kneeL: [-0.58, 0, 0], ankL: [0.22, 0, 0], hipR: [0.22, 0, 0], kneeR: [-0.5, 0, 0], ankR: [0.2, 0, 0] });
-  const release = mergePose(base, { pelvisY: -0.02, spine: [0.08, -0.3, 0], chest: [0, -0.18, 0], head: [0, -0.2, 0], shR: [-1.55, 0, -0.45], elR: [0.08, 0, 0], shL: [1.25, 0, 0.3], elL: [0.3, 0, 0] });
-  const follow = mergePose(base, { pelvisY: -0.03, spine: [0.16, -0.1, 0], head: [0.02, -0.08, 0], shR: [-0.5, 0, -0.35], elR: [0.35, 0, 0], shL: [1.2, 0, 0.15], elL: [0.3, 0, 0] });
+  // Underhand drop-toss, the way the seed is really thrown in Suwe: a
+  // shallow crouch (about half the old depth), the throwing arm hanging
+  // down and slightly back, then sweeping LOW forward to about waist
+  // height at the release frame. No overhead wind-up, small spine lean.
+  // Arm z on the right swings the hanging arm: + is back, - is forward.
+  const crouch = mergePose(base, { pelvisY: -0.035, spine: [0.14, 0, 0], chest: [0.05, 0, 0], head: [0.05, 0, 0], shR: [1.42, 0, 0.5], elR: [0.35, 0, 0], shL: [1.15, 0, -0.05], elL: [0.25, 0, 0], hipL: [0.18, 0, 0], kneeL: [-0.3, 0, 0], ankL: [0.12, 0, 0], hipR: [0.1, 0, 0], kneeR: [-0.26, 0, 0], ankR: [0.1, 0, 0] });
+  const release = mergePose(base, { pelvisY: -0.015, spine: [0.07, -0.1, 0], chest: [0.02, -0.06, 0], head: [0.02, -0.08, 0], shR: [1.08, 0, -1.0], elR: [0.12, 0, 0], shL: [1.2, 0, 0.3], elL: [0.3, 0, 0] });
+  const follow = mergePose(base, { pelvisY: -0.02, spine: [0.12, -0.04, 0], head: [0.03, -0.04, 0], shR: [0.95, 0, -0.55], elR: [0.3, 0, 0], shL: [1.25, 0, 0.15], elL: [0.3, 0, 0] });
   sim.stoneInHand = false;
   playAnim('throw', 980, [
     { t: 0, pose: clonePose(base) },
@@ -611,8 +707,7 @@ function animThrow(targetBox, clean) {
       if (k >= 0.46 && !a.flags.launched) {
         a.flags.launched = true;
         const from = wristWorld(active);
-        if (clean) flyStone(from, targetBox, 0.85, 640, targetBox);
-        else flyStone(from, targetBox, 0.4, 480, 0); // foul throw dies short of the court, resets later
+        flyStoneThrown(from, targetBox, p, clean ? targetBox : 0);
       }
     }
   });
@@ -620,10 +715,13 @@ function animThrow(targetBox, clean) {
 
 function hopFrames(restLanding) {
   const base = P.oneleg;
-  const crouch = mergePose(base, { pelvisY: -0.06, spine: [0.16, 0, 0], head: [0.06, 0, 0], shL: [1.15, 0, -0.3], elL: [0.25, 0, 0], shR: [1.15, 0, 0.3], elR: [0.25, 0, 0], hipL: [0.34, 0, 0], kneeL: [-0.58, 0, 0], ankL: [0.22, 0, 0] });
-  const air = mergePose(base, { pelvisY: 0.01, spine: [0.05, 0, 0], head: [0.04, 0, 0], shL: [0.12, 0, -0.35], elL: [0.12, 0, 0], shR: [0.12, 0, 0.35], elR: [0.12, 0, 0], hipL: [-0.04, 0, 0], kneeL: [-0.05, 0, 0], ankL: [-0.42, 0, 0], hipR: [-0.62, 0, 0], kneeR: [-1.6, 0, 0], ankR: [-0.3, 0, 0] });
-  const land = mergePose(base, { pelvisY: -0.075, spine: [0.2, 0, 0], head: [0.08, 0, 0], shL: [0.5, 0, -0.3], elL: [0.2, 0, 0], shR: [0.5, 0, 0.3], elR: [0.2, 0, 0], hipL: [0.36, 0, 0], kneeL: [-0.6, 0, 0], ankL: [0.24, 0, 0] });
-  const settle = restLanding ? clonePose(P.rest) : mergePose(base, { pelvisY: -0.01 });
+  // Real Suwe hops are low and quick with the arms hanging at the sides:
+  // no wide balance arms (that is the foul recovery only), the free leg
+  // folded back, and a flat foot landing (ankle near neutral at contact).
+  const crouch = mergePose(base, { pelvisY: -0.06, spine: [0.16, 0, 0], head: [0.06, 0, 0], shL: [1.15, 0, -0.2], elL: [0.25, 0, 0], shR: [1.15, 0, 0.2], elR: [0.25, 0, 0], hipL: [0.34, 0, 0], kneeL: [-0.58, 0, 0], ankL: [0.22, 0, 0] });
+  const air = mergePose(base, { pelvisY: 0.01, spine: [0.05, 0, 0], head: [0.04, 0, 0], shL: [1.02, 0, -0.16], elL: [0.18, 0, 0], shR: [1.02, 0, 0.16], elR: [0.18, 0, 0], hipL: [-0.04, 0, 0], kneeL: [-0.05, 0, 0], ankL: [-0.42, 0, 0], hipR: [-0.62, 0, 0], kneeR: [-1.6, 0, 0], ankR: [-0.3, 0, 0] });
+  const land = mergePose(base, { pelvisY: -0.07, spine: [0.2, 0, 0], head: [0.08, 0, 0], shL: [0.95, 0, -0.18], elL: [0.2, 0, 0], shR: [0.95, 0, 0.18], elR: [0.2, 0, 0], hipL: [0.34, 0, 0], kneeL: [-0.55, 0, 0], ankL: [0.04, 0, 0] });
+  const settle = restLanding ? clonePose(P.rest) : mergePose(base, { pelvisY: -0.01, shL: [1.05, 0, -0.14], elL: [0.18, 0, 0], shR: [1.05, 0, 0.14], elR: [0.18, 0, 0] });
   return [
     { t: 0, pose: clonePose(sim.currentPose) },
     { t: 0.18, pose: crouch },
@@ -637,7 +735,44 @@ function animHopTo(box, restLanding, onDone) {
   const to = boxCentre(box);
   const fromRot = active.root.rotation.y;
   const toRot = shortArc(fromRot, faceAngle(from, to));
-  playAnim('hop', 660, hopFrames(restLanding), { from, to, peak: 0.30, fromRot, toRot }, () => {
+  // The box 7 turnaround: in real play the turn at the far box is a
+  // STANDING PIVOT on two feet, never a hop spin. Detect it from the hop
+  // geometry in call order (previous hop's landing box to this box): if
+  // the new travel direction reverses the previous hop's direction by
+  // more than about 120 degrees, first enqueue a half second pivot in
+  // the rest pose, feet planted, rotating to the new facing. The snake
+  // turns are 90 degrees (diagonals about 117) and never trigger it.
+  let pivotFirst = false;
+  if (sim.lastHopTarget) {
+    const prevCentre = boxCentre(sim.lastHopTarget);
+    const newDir = faceAngle(prevCentre, to);
+    if (angDiff(newDir, sim.lastHopDir) > 2.09) pivotFirst = true;
+    sim.lastHopDir = newDir;
+  } else {
+    sim.lastHopDir = faceAngle(new THREE.Vector3(START.x, 0, START.z), to);
+  }
+  sim.lastHopTarget = box;
+  if (pivotFirst) {
+    const pivotBent = mergePose(P.rest, { pelvisY: -0.05, hipL: [0.12, 0, 0], kneeL: [-0.24, 0, 0], hipR: [0.12, 0, 0], kneeR: [-0.24, 0, 0] });
+    playAnim('pivot', 500, [
+      { t: 0, pose: clonePose(P.rest) },
+      { t: 0.5, pose: pivotBent },
+      { t: 1, pose: clonePose(P.rest) }
+    ], { from: from.clone(), to: from.clone(), peak: 0, fromRot, toRot, rotSpan: 0.92 }, null, {
+      onStart(a) {
+        // Plant the feet where the figure actually stands when the pivot
+        // begins (queued hops can make call time positions stale), and
+        // rotate to face along the coming hop.
+        a.travel.from.copy(active.root.position);
+        a.travel.to.copy(active.root.position);
+        a.travel.fromRot = active.root.rotation.y;
+        a.travel.toRot = shortArc(a.travel.fromRot, faceAngle(a.travel.from, to));
+      }
+    });
+  }
+  // One hop cycle is about 0.6 s with a low rise of about 0.18 units,
+  // the fast, flat shuffle-hop of real Suwe.
+  playAnim('hop', 600, hopFrames(restLanding), { from, to, peak: 0.18, fromRot, toRot }, () => {
     sim.figureBox = box;
     sim.stance = restLanding ? 'rest' : 'oneleg';
     if (restLanding) {
@@ -652,19 +787,38 @@ function animHopTo(box, restLanding, onDone) {
   }, {
     onFrame(k, a) {
       if (k >= 0.78 && !a.flags.dusted) { a.flags.dusted = true; puffDust(to.x, to.z, 1); }
-    }
+    },
+    ...(pivotFirst ? {
+      onStart(a) {
+        // The pivot just turned the figure: start the hop from the true
+        // position and facing instead of the stale call time values.
+        a.travel.from.copy(active.root.position);
+        a.travel.fromRot = active.root.rotation.y;
+        a.travel.toRot = shortArc(a.travel.fromRot, faceAngle(a.travel.from, a.travel.to));
+      }
+    } : {})
   });
 }
 
 function animPickup(seedBox) {
   animHopTo(seedBox, false, () => {
     const base = P.oneleg;
-    const bent = mergePose(base, { pelvisY: -0.1, spine: [0.8, 0, 0], chest: [0.35, 0, 0], head: [-0.1, 0, 0], shR: [1.12, 0, -0.28], elR: [0.06, 0, 0], shL: [1.35, 0, 0.32], elL: [0.25, 0, 0], hipL: [0.46, 0, 0], kneeL: [-0.68, 0, 0], ankL: [0.26, 0, 0], hipR: [-0.72, 0, 0], kneeR: [-0.25, 0, 0], ankR: [-0.2, 0, 0] });
-    const rising = mergePose(base, { pelvisY: -0.04, spine: [0.38, 0, 0], chest: [0.14, 0, 0], head: [0, 0, 0], shR: [0.7, 0, -0.15], elR: [0.45, 0, 0], hipL: [0.2, 0, 0], kneeL: [-0.34, 0, 0], ankL: [0.14, 0, 0] });
-    playAnim('pickup', 980, [
+    // The signature Suwe pickup, measured from footage: balance on ONE
+    // leg, fold deep from the waist until the back is near horizontal
+    // (spine 1.0 plus chest 0.5 sums to about 1.5 rad through the chain),
+    // the free leg extended BACK AND UP toward horizontal as a
+    // counterweight, the reaching arm down to the stone, the other arm
+    // flung out to the side, and a real balance wobble on the way down.
+    const bent = mergePose(base, { pelvisY: -0.06, spine: [1.0, 0, 0], chest: [0.5, 0, 0], head: [0.2, 0, 0], shR: [1.25, 0, -0.55], elR: [0.05, 0, 0], shL: [0.35, 0, -0.25], elL: [0.2, 0, 0], hipL: [0.18, 0, 0], kneeL: [-0.22, 0, 0], ankL: [0.05, 0, 0], hipR: [-1.35, 0, 0], kneeR: [-0.15, 0, 0], ankR: [-0.1, 0, 0] });
+    const wobbleR = mergePose(bent, { spine: [1.0, 0, 0.06], shL: [0.2, 0, -0.25] });
+    const wobbleL = mergePose(bent, { spine: [1.0, 0, -0.05], shL: [0.5, 0, -0.25] });
+    const rising = mergePose(base, { pelvisY: -0.03, spine: [0.35, 0, 0], chest: [0.12, 0, 0], head: [0, 0, 0], shR: [0.75, 0, -0.3], elR: [0.45, 0, 0], shL: [0.9, 0, -0.15], hipL: [0.12, 0, 0], kneeL: [-0.2, 0, 0], ankL: [0.08, 0, 0], hipR: [-0.3, 0, 0], kneeR: [-0.9, 0, 0], ankR: [-0.2, 0, 0] });
+    playAnim('pickup', 1000, [
       { t: 0, pose: clonePose(sim.currentPose) },
       { t: 0.42, pose: bent },
-      { t: 0.62, pose: bent },
+      { t: 0.58, pose: wobbleR },
+      { t: 0.72, pose: wobbleL },
+      { t: 0.84, pose: bent },
       { t: 1, pose: rising }
     ], null, () => {
       sim.stoneInHand = false;
@@ -679,6 +833,7 @@ function animPickup(seedBox) {
 }
 
 function animFoul() {
+  sim.lastHopTarget = null; // the walk home breaks the hop chain
   const from = active.root.position.clone();
   const to = from.clone(); to.x += 0.3; to.z += 0.18;
   const base = sim.stance === 'rest' ? P.rest : (sim.stance === 'oneleg' ? P.oneleg : P.idle);
@@ -738,6 +893,7 @@ function animClaim(box) {
 }
 
 function walkToStart(onDone) {
+  sim.lastHopTarget = null; // the walk home breaks the hop chain
   const from = active.root.position.clone();
   const to = new THREE.Vector3(START.x, 0, START.z);
   const dist = from.distanceTo(to);
@@ -852,8 +1008,8 @@ const Sim3D = {
     }
     reconcile();
   },
-  playThrow(box) { animThrow(box, true); },
-  playThrowFoul(box) { animThrow(box || 1, false); animFoul(); },
+  playThrow(box, power) { animThrow(box, true, power); },
+  playThrowFoul(box, power) { animThrow(box || 1, false, power); animFoul(); },
   playHop(box, rest) { animHopTo(box, !!rest, null); },
   playPickup(box) { animPickup(box); },
   playFoul() { animFoul(); },
@@ -950,7 +1106,7 @@ function tick() {
       }
       active.root.position.y = y;
       if (a.travel.fromRot !== undefined) {
-        const rk = easeIO(Math.min(1, k / 0.3));
+        const rk = easeIO(Math.min(1, k / (a.travel.rotSpan || 0.3)));
         active.root.rotation.y = a.travel.fromRot + (a.travel.toRot - a.travel.fromRot) * rk;
       }
       if (a.travel.walk) {

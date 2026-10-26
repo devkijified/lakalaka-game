@@ -61,6 +61,7 @@ function publicRoom(room) {
     turnPlayerId: room.turnPlayerId,
     seedBox: room.seedBox,
     targetBox: room.targetBox,
+    lastThrow: room.lastThrow || null,
     sequence: room.sequence,
     seqIndex: room.seqIndex,
     houses: room.houses,
@@ -178,7 +179,7 @@ wss.on('connection', (ws) => {
       if (!name) return fail('Type your display name first.');
       const code = makeCode();
       const player = { id: nextPlayerId++, name, color: COLORS[0], connected: true, ws, stage: 1 };
-      myRoom = { code, players: [player], hostId: player.id, status: 'lobby', paused: false, phase: 'throw', turnPlayerId: player.id, seedBox: null, targetBox: null, sequence: [], seqIndex: 0, houses: {}, lastClaimOrder: {}, message: name + ' created the room. Share the code and wait for friends.', messageSeq: 1, winner: null };
+      myRoom = { code, players: [player], hostId: player.id, status: 'lobby', paused: false, phase: 'throw', turnPlayerId: player.id, seedBox: null, targetBox: null, lastThrow: null, sequence: [], seqIndex: 0, houses: {}, lastClaimOrder: {}, message: name + ' created the room. Share the code and wait for friends.', messageSeq: 1, winner: null };
       rooms.set(code, myRoom);
       me = player;
       send({ type: 'joined', playerId: me.id, code });
@@ -233,6 +234,7 @@ wss.on('connection', (ws) => {
       if (!Number.isFinite(power) || power < 0 || power > 100) return fail('That throw did not count. Try again.');
       const target = me.stage;
       if (power >= 42 && power <= 58) {
+        room.lastThrow = { power, target, result: 'clean' };
         room.seedBox = target;
         room.targetBox = target;
         room.sequence = buildSequence(target, me.id, room.houses);
@@ -240,8 +242,10 @@ wss.on('connection', (ws) => {
         room.phase = 'hop';
         setMessage(room, me.name + ' landed the seed clean in box ' + target + '. Hop the course, skip the seed box, rest in box 7, come back, then tap box ' + target + ' to pick the seed up.');
       } else if ((power >= 35 && power <= 41) || (power >= 59 && power <= 65)) {
+        room.lastThrow = { power, target, result: 'line' };
         endTurn(room, 'Foul: ' + me.name + ' threw and the seed landed on the line. Turn over.');
       } else {
+        room.lastThrow = { power, target, result: 'miss' };
         endTurn(room, 'Foul: ' + me.name + ' threw and the seed missed box ' + target + '. Turn over.');
       }
       broadcast(room);
