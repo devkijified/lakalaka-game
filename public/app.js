@@ -67,6 +67,7 @@ function connect(afterOpen) {
       render();
       simDo('setRoom', room, myId);
       if (prevRoom && prevRoom.status === 'lobby' && room.status === 'playing') showCountdown();
+      if (prevRoom && prevRoom.status !== 'lobby' && room.status === 'lobby') loadRecords();
     }
   };
   ws.onclose = () => { ws = null; };
@@ -206,6 +207,13 @@ function inviteLink() {
   return location.origin + '/?join=' + (room ? room.code : '');
 }
 
+// Buttons carry an icon span beside a label span (icons.js). Text swaps go
+// to the label only, so the glyph survives state changes like Copied.
+function setBtnLabel(btn, text) {
+  const label = btn.querySelector('.btn-label');
+  if (label) label.textContent = text; else btn.textContent = text;
+}
+
 async function copyInvite() {
   const link = inviteLink();
   let ok = false;
@@ -220,8 +228,8 @@ async function copyInvite() {
   $('copyHint').textContent = ok
     ? 'Invite link copied. Send it to your friends and they land straight in this room.'
     : 'Copy this link by hand: ' + link;
-  $('copyInviteBtn').textContent = ok ? 'Copied' : 'Copy invite link';
-  setTimeout(() => { $('copyInviteBtn').textContent = 'Copy invite link'; }, 1800);
+  setBtnLabel($('copyInviteBtn'), ok ? 'Copied' : 'Copy invite link');
+  setTimeout(() => { setBtnLabel($('copyInviteBtn'), 'Copy invite link'); }, 1800);
 }
 $('copyInviteBtn').addEventListener('click', copyInvite);
 $('shareBtn').addEventListener('click', async () => {
@@ -254,6 +262,66 @@ function renderQr() {
   }
   $('inviteQr').innerHTML = svg;
 }
+
+// --- Player records ------------------------------------------------------------
+// Records live server side (GET /api/records) and follow the name each
+// player types, no accounts. If records are off, or the fetch fails, the
+// section stays hidden and the landing looks exactly as it did before.
+let recordsEnabled = false;
+
+function formatCount(n) {
+  n = Number(n) || 0;
+  if (n < 1000) return String(n);
+  return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+}
+
+function formatWhen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const now = new Date();
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
+    return 'Today, ' + time;
+  }
+  return d.toLocaleDateString([], { day: 'numeric', month: 'short' }) + ', ' + time;
+}
+
+function renderRecords(data) {
+  const section = $('recordsSection');
+  const matches = Array.isArray(data.matches) ? data.matches : [];
+  const players = Array.isArray(data.players) ? data.players : [];
+  if (!data.enabled || (matches.length === 0 && players.length === 0)) {
+    section.classList.add('hidden');
+    return;
+  }
+  $('topPlayers').innerHTML = players.map((p) =>
+    '<li><span class="rec-name">' + escapeHtml(p.name) + '</span><span class="rec-stat">' +
+    formatCount(p.wins) + (Number(p.wins) === 1 ? ' win' : ' wins') + ' in ' +
+    formatCount(p.games) + (Number(p.games) === 1 ? ' game' : ' games') + '</span></li>').join('');
+  $('pastGames').innerHTML = matches.map((m) => {
+    const scores = (Array.isArray(m.players) ? m.players : [])
+      .map((p) => escapeHtml(p.name) + ' ' + formatCount(p.houses)).join(', ');
+    return '<li><div class="rec-head"><span class="rec-winner">' + escapeHtml(m.winner_name) + ' won</span>' +
+      '<span class="rec-date">' + escapeHtml(formatWhen(m.played_at)) + '</span></div>' +
+      '<div class="rec-scores">' + scores + '</div></li>';
+  }).join('');
+  section.classList.remove('hidden');
+}
+
+async function loadRecords() {
+  try {
+    const res = await fetch('/api/records');
+    if (!res.ok) throw new Error('records unavailable');
+    const data = await res.json();
+    recordsEnabled = !!data.enabled;
+    renderRecords(data);
+  } catch (e) {
+    recordsEnabled = false;
+    $('recordsSection').classList.add('hidden');
+  }
+  $('recordNote').classList.toggle('hidden', !recordsEnabled);
+}
+loadRecords();
 
 // --- Start countdown -----------------------------------------------------------
 // The host's start flips the room to playing on every screen at once. The
@@ -366,6 +434,7 @@ function render() {
     $('finalScores').innerHTML = room.players.map((p) =>
       '<li><span class="dot" style="background:' + p.color + '"></span>' + escapeHtml(p.name) + ': ' + p.housesOwned + (p.housesOwned === 1 ? ' house' : ' houses') + '</li>').join('');
     $('gameView').classList.remove('hidden');
+    $('recordNote').classList.toggle('hidden', !recordsEnabled);
   }
 }
 

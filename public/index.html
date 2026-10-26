@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lakalaka: Suwe</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232b2018'/%3E%3Crect x='6' y='6' width='20' height='20' fill='none' stroke='%23ffc857' stroke-width='2.5'/%3E%3C/svg%3E">
+<link rel="preload" href="fonts/aeonik-pro-bold.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="in-lobby">
@@ -32,33 +33,43 @@
       <label class="field">Your name
         <input id="nameInput" type="text" maxlength="20" placeholder="Type your name" autocomplete="off">
       </label>
-      <button id="createBtn" class="primary">Create a room</button>
-      <button id="quickBtn" class="secondary">Quick play: find me a game</button>
+      <button id="createBtn" class="primary"><span class="ic" data-icon="add-circle"></span><span class="btn-label">Create a room</span></button>
+      <button id="quickBtn" class="secondary"><span class="ic" data-icon="flash"></span><span class="btn-label">Quick play: find me a game</span></button>
       <div class="divider"><span>or join with a code</span></div>
       <div class="join-row">
         <input id="codeInput" type="text" maxlength="4" placeholder="ABCD" autocomplete="off" class="code-input" aria-label="Room code">
-        <button id="joinBtn" class="secondary">Join room</button>
+        <button id="joinBtn" class="secondary"><span class="ic" data-icon="login"></span><span class="btn-label">Join room</span></button>
       </div>
       <p id="lobbyError" class="error" role="alert"></p>
     </div>
 
-    <p id="introText" class="intro">Drawn in chalk, played on one leg. Create a room, share the 4 letter code, and play with real friends on their own phones. No signup.</p>
+    <p id="introText" class="intro t-lead">Drawn in chalk, played on one leg. Create a room, share the 4 letter code, and play with real friends on their own phones. No signup.</p>
 
     <div id="roomPanel" class="room-panel hidden">
       <p class="meta">Share this code with your friends</p>
       <p id="roomCodeBig" class="room-code-big"></p>
       <div class="share-row">
-        <button id="copyInviteBtn" class="secondary">Copy invite link</button>
-        <button id="shareBtn" class="secondary">Share</button>
+        <button id="copyInviteBtn" class="secondary"><span class="ic" data-icon="link"></span><span class="btn-label">Copy invite link</span></button>
+        <button id="shareBtn" class="secondary"><span class="ic" data-icon="share"></span><span class="btn-label">Share</span></button>
       </div>
       <div id="inviteQr" class="invite-qr"></div>
       <p id="copyHint" class="meta"></p>
       <p id="publicNote" class="meta hidden">Public game. Anyone using Quick play can land in this room.</p>
       <h2>Players <span id="slotCount" class="slot-count"></span></h2>
       <ul id="playerList" class="player-list"></ul>
-      <button id="startBtn" class="primary hidden">Start game</button>
+      <button id="startBtn" class="primary hidden"><span class="ic" data-icon="play"></span><span class="btn-label">Start game</span></button>
       <p id="startHint" class="meta"></p>
     </div>
+
+    <!-- Player records: filled from /api/records, hidden when records
+         are off or there is nothing to show yet. -->
+    <section id="recordsSection" class="records hidden">
+      <h2><span class="ic" data-icon="trophy"></span>Top players</h2>
+      <ul id="topPlayers" class="player-list"></ul>
+      <h2><span class="ic" data-icon="history"></span>Past games</h2>
+      <ul id="pastGames" class="records-list"></ul>
+      <p class="meta">Records follow the name each player types, exactly as typed. Type the same name every time to keep your record going.</p>
+    </section>
 
     <details class="howto">
       <summary>How to play</summary>
@@ -99,7 +110,7 @@
       <p id="spectateHint" class="meta hidden">You are watching. Moves appear here live.</p>
     </div>
 
-    <button id="leaveBtn" class="ghost">Leave room</button>
+    <button id="leaveBtn" class="ghost"><span class="ic" data-icon="logout"></span><span class="btn-label">Leave room</span></button>
   </section>
 
   <!-- Winner -->
@@ -107,11 +118,13 @@
     <h2 id="winnerTitle">Winner</h2>
     <p id="winnerText" class="message"></p>
     <ul id="finalScores" class="player-list"></ul>
-    <button id="playAgainBtn" class="primary">Play again</button>
+    <p id="recordNote" class="meta hidden">Saved to Past games.</p>
+    <button id="playAgainBtn" class="primary"><span class="ic" data-icon="refresh"></span><span class="btn-label">Play again</span></button>
   </section>
 </main>
 
 <script src="vendor/qrcode.js"></script>
+<script src="icons.js"></script>
 <script src="app.js"></script>
 <script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"/addons/"}}</script>
 <script type="module" src="sim.js"></script>
