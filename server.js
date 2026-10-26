@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
+const records = require('./server-records.js');
 
 const PORT = process.env.PORT || 4173;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -123,7 +124,26 @@ function checkWin(room) {
   room.status = 'ended';
   room.paused = false;
   setMessage(room, best.name + ' wins with ' + best.count + (best.count === 1 ? ' house.' : ' houses.'));
+  recordResult(room, best);
   return true;
+}
+
+// Save the finished game to the records store, exactly once per game.
+// Fire and forget: the store write never delays or breaks the game, and
+// the guard keeps play_again and state churn from recording it twice.
+function recordResult(room, best) {
+  if (room.recorded) return;
+  room.recorded = true;
+  records.recordMatch({
+    room_code: room.code,
+    player_count: room.players.length,
+    winner_name: best.name,
+    players: room.players.map((p) => ({
+      name: String(p.name || '').trim(),
+      houses: Object.values(room.houses).filter((o) => o === p.id).length,
+      won: p.id === best.playerId
+    }))
+  });
 }
 
 function completeRun(room, player) {
@@ -155,6 +175,15 @@ const server = http.createServer((req, res) => {
   // /?join=ABCD serve the landing page instead of resolving to the
   // public directory itself and 404ing.
   const cleanUrl = req.url.split('?')[0];
+  // Player records: served by this server only, so the store keys stay
+  // server side and never reach the browser.
+  if (cleanUrl === '/api/records') {
+    records.getRecords().then((data) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(data));
+    });
+    return;
+  }
   let filePath = cleanUrl === '/' ? '/index.html' : cleanUrl;
   filePath = path.normalize(path.join(PUBLIC_DIR, filePath));
   if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403); res.end('Forbidden'); return; }
@@ -247,6 +276,7 @@ wss.on('connection', (ws) => {
       room.phase = 'throw';
       room.houses = {}; room.lastClaimOrder = {};
       room.winner = null;
+      room.recorded = false;
       for (const p of room.players) p.stage = 1;
       const first = connectedPlayers(room)[0];
       room.turnPlayerId = first.id;

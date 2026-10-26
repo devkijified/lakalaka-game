@@ -55,6 +55,15 @@ The first screen is the game world now, built from how proven multiplayer web ga
 * **Lobby presence.** Every joined player's figure stands in a row beside the court with their name label while you wait. The slots in the room panel mirror it: 4 slots, filled ones carry names and colours, empty ones read Open slot. At the start the first thrower walks from the row to the start edge, then a 3, 2, 1 countdown over the stage is the shared get ready beat.
 * **QR library.** The QR code is drawn locally by `public/vendor/qrcode.js`, qrcode-generator 1.4.4 by Kazuhiko Arase, MIT license (license text in the file header). No CDN, no build step, no tracking.
 
+## Player records
+
+Every finished game can be saved to a Supabase table, so results survive restarts and the landing can show Past games and Top players. It is optional: with nothing configured, the server skips it silently and the game plays exactly as before.
+
+* **What is stored:** one row per finished game in `public.matches`: when it was played, the room code, how many players, the winner's name, and a list of every player with their name, how many houses they owned, and whether they won.
+* **Turn it on:** run `migrations/001_matches.sql` once in the Supabase SQL editor, then set two environment variables on the server: `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Both are read server side only (`server-records.js`); the key is never sent to the browser. Players read records through `GET /api/records` on the game server, which returns the latest 20 games plus Top players worked out from the latest 200.
+* **Writing never touches the game:** the save happens the moment a game ends, in the background. If the store is down, the server logs one line and the game carries on.
+* **Honest note on identity:** records follow the name each player types, exactly as typed. There are no accounts. Type the same name every time and your record keeps growing; anyone who types your name adds to it.
+
 ## Test
 
 With the server running (`npm start` in one terminal), run `node test-multiplayer.mjs` in another. It connects test players, plays one clean run and one foul, then covers Quick play: two strangers quick-join into the same public room, a third quick-joiner after that game starts gets a fresh room, a code created room reads as private, and code join still works into a public room. It prints PASS or FAIL for each check.
