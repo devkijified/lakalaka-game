@@ -931,12 +931,25 @@ function setActiveIdentity(player) {
   active.label.textContent = player.name;
   active.label.style.borderColor = player.color;
   active.label.style.color = player.color;
+  active.labelLift = 0; // the lobby label stagger never leaks into a game
 }
 // The standing row beside the court: one slot per player, indexed by the
 // player's place in the room list, so a figure keeps its slot from the
 // lobby into the game and nobody jumps sideways when the game starts.
 const SLOT_X = 1.42, SLOT_Z0 = -0.55, SLOT_DZ = 0.85;
 function slotPos(i) { return { x: SLOT_X, z: SLOT_Z0 - i * SLOT_DZ }; }
+
+// Lobby-only lineup: before the game, everyone stands in a row across
+// the far end of the court, facing the camera. The game's east side row
+// runs away from the camera, so from the landing view each player hid
+// behind the one in front and the name labels stacked into one pill.
+// Across the far end the same players sit side by side with daylight
+// between them. Positions are anchored to the west end, so a player who
+// is already standing never moves when someone else joins. At start the
+// waiters take their game slots (slotPos) while the thrower walks down
+// to the start edge, behind the start countdown.
+const LOBBY_X0 = -1.58, LOBBY_DX = 1.05, LOBBY_Z = -2.72;
+function lobbySlotPos(i) { return { x: LOBBY_X0 + i * LOBBY_DX, z: LOBBY_Z }; }
 
 function labelWaiter(fig, p) {
   fig.name = p.name;
@@ -957,6 +970,7 @@ function ensureWaiters(room, turnId) {
       waiters.set(p.id, fig);
     }
     labelWaiter(fig, p);
+    fig.labelLift = 0; // game labels sit at the natural head height
     const s = slotPos(room.players.indexOf(p));
     fig.root.position.set(s.x, 0, s.z);
     fig.root.rotation.y = -Math.PI / 2; // face the court
@@ -970,11 +984,10 @@ function ensureWaiters(room, turnId) {
 }
 
 // Lobby presence: before the game there is no turn player, so every
-// joined player stands in the row, the turn player's figure included.
-// Same instances, same slots as the game uses, so the start is a hand
-// over, not a pop: at start the first thrower walks to the start edge
-// (see setRoom) and the rest are already standing where the game keeps
-// its waiting players.
+// joined player stands in the far end lineup (lobbySlotPos), the turn
+// player's figure included. Same figure instances as the game uses, so
+// nobody is rebuilt at start: the first thrower walks from the lineup
+// to the start edge (see setRoom) and the rest take their game slots.
 function stageLobbyFigures(room) {
   const seen = new Set();
   room.players.forEach((p, i) => {
@@ -991,10 +1004,14 @@ function stageLobbyFigures(room) {
       }
       labelWaiter(fig, p);
     }
+    // Stagger alternate labels upward so neighbouring name pills can
+    // never overlap, however long the names are. Lobby only: placeLabel
+    // reads labelLift, and the game paths reset it to 0.
+    fig.labelLift = (i % 2) * 22;
     if (!sim.anim && sim.queue.length === 0) {
-      const s = slotPos(i);
+      const s = lobbySlotPos(i);
       fig.root.position.set(s.x, 0, s.z);
-      fig.root.rotation.y = -Math.PI / 2; // face the court
+      fig.root.rotation.y = 0; // face the court and the camera
     }
     fig.root.visible = true;
     if (fig.label) fig.label.style.display = '';
@@ -1128,7 +1145,7 @@ function placeLabel(fig, worldPos) {
   fig.label.style.display = '';
   const r = container.getBoundingClientRect();
   const x = Math.max(42, Math.min(r.width - 42, (projV.x * 0.5 + 0.5) * r.width));
-  const y = (-projV.y * 0.5 + 0.5) * r.height;
+  const y = (-projV.y * 0.5 + 0.5) * r.height - (fig.labelLift || 0);
   fig.label.style.transform = 'translate(-50%, -100%) translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
 }
 
