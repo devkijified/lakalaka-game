@@ -54,6 +54,7 @@ function connectedPlayers(room) {
 function publicRoom(room) {
   return {
     code: room.code,
+    isPublic: !!room.public,
     status: room.status, // lobby, playing, ended
     paused: room.paused,
     phase: room.phase, // throw, hop, house
@@ -150,7 +151,11 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
-  let filePath = req.url === '/' ? '/index.html' : req.url.split('?')[0];
+  // Strip the query string before resolving, so invite links like
+  // /?join=ABCD serve the landing page instead of resolving to the
+  // public directory itself and 404ing.
+  const cleanUrl = req.url.split('?')[0];
+  let filePath = cleanUrl === '/' ? '/index.html' : cleanUrl;
   filePath = path.normalize(path.join(PUBLIC_DIR, filePath));
   if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403); res.end('Forbidden'); return; }
   fs.readFile(filePath, (err, data) => {
@@ -174,16 +179,47 @@ wss.on('connection', (ws) => {
     try { msg = JSON.parse(raw.toString()); } catch { return; }
     if (!msg || typeof msg.type !== 'string') return;
 
-    if (msg.type === 'create_room') {
-      const name = String(msg.name || '').trim().slice(0, 20);
-      if (!name) return fail('Type your display name first.');
+    // Shared room entry paths. create_room makes a private room (code
+    // only). quick_join is "find or create": it lands in a public room
+    // that is waiting in the lobby, or opens a fresh public room.
+    function createRoom(name, isPublic) {
       const code = makeCode();
       const player = { id: nextPlayerId++, name, color: COLORS[0], connected: true, ws, stage: 1 };
-      myRoom = { code, players: [player], hostId: player.id, status: 'lobby', paused: false, phase: 'throw', turnPlayerId: player.id, seedBox: null, targetBox: null, lastThrow: null, sequence: [], seqIndex: 0, houses: {}, lastClaimOrder: {}, message: name + ' created the room. Share the code and wait for friends.', messageSeq: 1, winner: null };
+      myRoom = { code, public: !!isPublic, players: [player], hostId: player.id, status: 'lobby', paused: false, phase: 'throw', turnPlayerId: player.id, seedBox: null, targetBox: null, lastThrow: null, sequence: [], seqIndex: 0, houses: {}, lastClaimOrder: {}, message: name + ' created the room. Share the code and wait for friends.', messageSeq: 1, winner: null };
       rooms.set(code, myRoom);
       me = player;
       send({ type: 'joined', playerId: me.id, code });
       broadcast(myRoom);
+    }
+
+    function joinRoom(room, name) {
+      const player = { id: nextPlayerId++, name, color: COLORS[room.players.length % COLORS.length], connected: true, ws, stage: 1 };
+      room.players.push(player);
+      myRoom = room; me = player;
+      setMessage(room, name + ' joined the room.');
+      room.paused = connectedPlayers(room).length < 2 && room.status === 'playing';
+      send({ type: 'joined', playerId: me.id, code: room.code });
+      broadcast(room);
+    }
+
+    if (msg.type === 'create_room') {
+      const name = String(msg.name || '').trim().slice(0, 20);
+      if (!name) return fail('Type your display name first.');
+      createRoom(name, false);
+      return;
+    }
+
+    if (msg.type === 'quick_join') {
+      const name = String(msg.name || '').trim().slice(0, 20);
+      if (!name) return fail('Type your display name first.');
+      let target = null;
+      for (const r of rooms.values()) {
+        if (!r.public || r.status !== 'lobby') continue;
+        const conn = connectedPlayers(r).length;
+        if (conn >= 1 && conn < 4) { target = r; break; }
+      }
+      if (target) joinRoom(target, name);
+      else createRoom(name, true);
       return;
     }
 
@@ -195,13 +231,7 @@ wss.on('connection', (ws) => {
       if (!room) return fail('No room with that code. Check the code and try again.');
       if (room.status !== 'lobby') return fail('That game has already started.');
       if (room.players.filter((p) => p.connected).length >= 4) return fail('That room is full. Rooms hold 4 players.');
-      const player = { id: nextPlayerId++, name, color: COLORS[room.players.length % COLORS.length], connected: true, ws, stage: 1 };
-      room.players.push(player);
-      myRoom = room; me = player;
-      setMessage(room, name + ' joined the room.');
-      room.paused = connectedPlayers(room).length < 2 && room.status === 'playing';
-      send({ type: 'joined', playerId: me.id, code });
-      broadcast(room);
+      joinRoom(room, name);
       return;
     }
 

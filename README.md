@@ -44,9 +44,20 @@ The v4 motion pass retuned the simulation against real Suwe gameplay videos watc
 * **Pickup.** The signature move, rebuilt as played: balance on one leg for about a second, fold deep from the waist until the back is near horizontal, the free leg extended back and up as a counterweight, one arm reaching down to the seed, the other out to the side, with a visible balance wobble part way down.
 * **Meter.** The throw needle also moves slower than before (a full sweep takes about 2.5 seconds), so stopping in the green is a skill, not a reflex test.
 
+## What changed in v5: the landing and lobby are a place, not a form
+
+The first screen is the game world now, built from how proven multiplayer web games mechanize joining (full research: `~/workspace/research_notes/lakalaka-lobby-join-research-20261026.md`):
+
+* **Stage on the landing.** The 3D court renders from the first second, behind and above the join card, with the character idle at the start edge. The stage stays visible through the lobby and the game, and only the winner screen puts it away.
+* **One card, three ways in.** Your name (remembered on the phone, so a returning player is one tap away), Create a room (private, code only), Quick play, and a code row where typing the 4th letter joins by itself. One guarded intent fires per tap, so nobody can join twice by accident.
+* **Quick play is find or create.** The server pairs a Quick play tap with a public room already waiting in the lobby, or opens a fresh public room. Private rooms never receive Quick play strangers. Rooms made by Quick play say so in the lobby.
+* **Invite links.** The room panel carries the big code plus a Copy invite link button, a Share button (system share sheet, copy as fallback), and a QR code of the link. The link is `/?join=CODE`: opening it prefills the code, shows an invited banner, and one tap after the name lands the guest in the lobby. (The server strips query strings before resolving static files, which is what makes the link work at all.)
+* **Lobby presence.** Every joined player's figure stands in a row beside the court with their name label while you wait. The slots in the room panel mirror it: 4 slots, filled ones carry names and colours, empty ones read Open slot. At the start the first thrower walks from the row to the start edge, then a 3, 2, 1 countdown over the stage is the shared get ready beat.
+* **QR library.** The QR code is drawn locally by `public/vendor/qrcode.js`, qrcode-generator 1.4.4 by Kazuhiko Arase, MIT license (license text in the file header). No CDN, no build step, no tracking.
+
 ## Test
 
-With the server running (`npm start` in one terminal), run `node test-multiplayer.mjs` in another. It connects two test players, plays one clean run and one foul, and prints PASS or FAIL for each check.
+With the server running (`npm start` in one terminal), run `node test-multiplayer.mjs` in another. It connects test players, plays one clean run and one foul, then covers Quick play: two strangers quick-join into the same public room, a third quick-joiner after that game starts gets a fresh room, a code created room reads as private, and code join still works into a public room. It prints PASS or FAIL for each check.
 
 For the 3D view, run `node test-browser.mjs`. It opens two real pages at 390 by 844 (player and spectator, using the Chrome in the mobile rig folder), plays a full clean run by tapping the 3D boxes at their screen coordinates, and asserts the figure leaves the start edge, passes through an airborne phase on both pages, lands in every box in order, rests in box 7, picks the seed up and walks home, with zero page errors. It also saves the screenshots named `v3-idle-390x844.png`, `v3-hop-390x844.png`, `v3-rest-390x844.png`, `v3-throw-390x844.png` and a close portrait `v3-face-390x844.png`.
 

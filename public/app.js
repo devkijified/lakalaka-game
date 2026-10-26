@@ -49,10 +49,16 @@ function connect(afterOpen) {
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.type === 'joined') { myId = msg.playerId; }
-    if (msg.type === 'error') { $('lobbyError').textContent = msg.message; }
+    if (msg.type === 'error') { $('lobbyError').textContent = msg.message; entrySent = false; }
     if (msg.type === 'state') {
       const prevRoom = room;
       room = msg.room;
+      if (inviteInUrl) {
+        // Invite accepted: clean the ?join= code out of the address so a
+        // refresh does not re-enter the invite flow.
+        inviteInUrl = false;
+        try { history.replaceState(null, '', location.pathname); } catch (e) { /* cosmetic only */ }
+      }
       if (room.messageSeq !== lastMessageSeq) {
         if (room.message && /clean run|claimed box/.test(room.message)) successSound();
         lastMessageSeq = room.messageSeq;
@@ -60,6 +66,7 @@ function connect(afterOpen) {
       driveSim(prevRoom, room);
       render();
       simDo('setRoom', room, myId);
+      if (prevRoom && prevRoom.status === 'lobby' && room.status === 'playing') showCountdown();
     }
   };
   ws.onclose = () => { ws = null; };
@@ -97,14 +104,65 @@ function driveSim(prev, next) {
   }
 }
 
-$('createBtn').addEventListener('click', () => {
+// --- Getting in: name memory, invite links, one guarded entry intent -------
+// The name is remembered on this phone, so a returning player is one tap
+// from playing. Entry intents are guarded: one tap (or the auto join on the
+// 4th code letter) sends exactly one entry message, so a stray second tap
+// can never join the same person twice.
+let entrySent = false;
+let inviteInUrl = false;
+try {
+  const saved = localStorage.getItem('lakalakaName');
+  if (saved && !$('nameInput').value) $('nameInput').value = saved;
+} catch (e) { /* storage is a nicety, never a blocker */ }
+
+function saveName() {
+  try { localStorage.setItem('lakalakaName', $('nameInput').value.trim()); } catch (e) { /* ignore */ }
+}
+
+function entryIntent(msg) {
+  if (entrySent) return;
   $('lobbyError').textContent = '';
-  connect(() => send({ type: 'create_room', name: $('nameInput').value }));
+  entrySent = true;
+  saveName();
+  connect(() => send(msg));
+}
+
+$('createBtn').addEventListener('click', () => {
+  entryIntent({ type: 'create_room', name: $('nameInput').value });
+});
+$('quickBtn').addEventListener('click', () => {
+  entryIntent({ type: 'quick_join', name: $('nameInput').value });
 });
 $('joinBtn').addEventListener('click', () => {
-  $('lobbyError').textContent = '';
-  connect(() => send({ type: 'join_room', code: $('codeInput').value, name: $('nameInput').value }));
+  entryIntent({ type: 'join_room', code: $('codeInput').value, name: $('nameInput').value });
 });
+$('codeInput').addEventListener('input', () => {
+  const el = $('codeInput');
+  const v = el.value.toUpperCase();
+  if (v !== el.value) el.value = v;
+  if (v.trim().length === 4) {
+    if ($('nameInput').value.trim()) {
+      entryIntent({ type: 'join_room', code: v, name: $('nameInput').value });
+    } else {
+      $('nameInput').focus();
+    }
+  }
+});
+
+// Invite link: /?join=CODE prefills the code and says who invited you.
+// One tap on Join room after the name, and you are in the lobby.
+(function applyInvite() {
+  let code = '';
+  try { code = (new URLSearchParams(location.search).get('join') || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); } catch (e) { /* no params */ }
+  if (code.length !== 4) return;
+  inviteInUrl = true;
+  $('codeInput').value = code;
+  $('inviteBanner').textContent = 'You have been invited to room ' + code;
+  $('inviteBanner').classList.remove('hidden');
+  $('nameInput').focus();
+})();
+
 $('startBtn').addEventListener('click', () => send({ type: 'start_game' }));
 $('leaveBtn').addEventListener('click', () => { send({ type: 'leave' }); location.reload(); });
 $('playAgainBtn').addEventListener('click', () => send({ type: 'play_again' }));
@@ -143,24 +201,124 @@ $('claimBtn').addEventListener('click', () => {
   send({ type: 'house_claim', position: pos });
 });
 
+// --- Sharing the room --------------------------------------------------------
+function inviteLink() {
+  return location.origin + '/?join=' + (room ? room.code : '');
+}
+
+async function copyInvite() {
+  const link = inviteLink();
+  let ok = false;
+  try { await navigator.clipboard.writeText(link); ok = true; } catch (e) { /* fall through */ }
+  if (!ok) {
+    const ta = document.createElement('textarea');
+    ta.value = link; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    ta.remove();
+  }
+  $('copyHint').textContent = ok
+    ? 'Invite link copied. Send it to your friends and they land straight in this room.'
+    : 'Copy this link by hand: ' + link;
+  $('copyInviteBtn').textContent = ok ? 'Copied' : 'Copy invite link';
+  setTimeout(() => { $('copyInviteBtn').textContent = 'Copy invite link'; }, 1800);
+}
+$('copyInviteBtn').addEventListener('click', copyInvite);
+$('shareBtn').addEventListener('click', async () => {
+  const link = inviteLink();
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Lakalaka', text: 'Join my Lakalaka room, code ' + (room ? room.code : '') + '.', url: link });
+      return;
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  copyInvite();
+});
+
+// QR of the invite link, drawn locally by the vendored qrcode-generator
+// (MIT, Kazuhiko Arase). Rebuilt only when the room code changes.
+let qrForCode = null;
+function renderQr() {
+  if (!room || typeof qrcode !== 'function') return;
+  if (qrForCode === room.code) return;
+  qrForCode = room.code;
+  const link = inviteLink();
+  let svg = '';
+  for (let t = 4; t <= 14 && !svg; t++) {
+    try {
+      const qr = qrcode(t, 'M');
+      qr.addData(link);
+      qr.make();
+      svg = qr.createSvgTag({ cellSize: 3, margin: 6, scalable: true });
+    } catch (e) { svg = ''; }
+  }
+  $('inviteQr').innerHTML = svg;
+}
+
+// --- Start countdown -----------------------------------------------------------
+// The host's start flips the room to playing on every screen at once. The
+// countdown is the shared get ready beat over the stage: 3, 2, 1, then the
+// court is live. It is visual only and never blocks the court or controls.
+let countdownTimer = null;
+function showCountdown() {
+  const el = $('countdown');
+  let n = 3;
+  el.textContent = n;
+  el.classList.remove('hidden');
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    n -= 1;
+    if (n <= 0) {
+      clearInterval(countdownTimer); countdownTimer = null;
+      el.classList.add('hidden');
+      el.textContent = '';
+    } else {
+      el.textContent = n;
+    }
+  }, 700);
+}
+
 function render() {
   if (!room) return;
   $('roomBadge').classList.remove('hidden');
   $('roomCodeBadge').textContent = room.code;
 
   document.body.classList.toggle('in-game', room.status !== 'lobby');
+  document.body.classList.toggle('in-lobby', room.status === 'lobby');
   $('lobbyView').classList.toggle('hidden', room.status !== 'lobby');
   $('gameView').classList.toggle('hidden', room.status === 'lobby');
   $('winnerView').classList.toggle('hidden', room.status !== 'ended');
+  // The stage lives through landing, lobby and game. Only the winner
+  // screen puts it away.
+  $('court3d').classList.toggle('hidden', room.status === 'ended');
+
+  // render() only runs once you are in a room, so the join card and the
+  // intro step aside for good and the room panel owns the lobby.
+  $('joinCard').classList.add('hidden');
+  $('introText').classList.add('hidden');
 
   // Lobby panel
   $('roomPanel').classList.remove('hidden');
   $('roomCodeBig').textContent = room.code;
-  $('playerList').innerHTML = room.players.map((p) =>
-    '<li class="' + (p.connected ? '' : 'offline') + '"><span class="dot" style="background:' + p.color + '"></span>' +
-    escapeHtml(p.name) + (p.isHost ? ' <span class="tag">HOST</span>' : '') +
-    (p.id === myId ? ' <span class="tag">YOU</span>' : '') +
-    (p.connected ? '' : ' (away)') + '</li>').join('');
+  $('publicNote').classList.toggle('hidden', !room.isPublic);
+  renderQr();
+  // Slot board: always 4 slots, filled ones carry the player, empty ones
+  // read as open so the host can see exactly what the room still needs.
+  const totalSlots = Math.max(4, room.players.length);
+  let slotsHtml = '';
+  for (let i = 0; i < totalSlots; i++) {
+    const p = room.players[i];
+    if (p) {
+      slotsHtml += '<li class="slot filled' + (p.connected ? '' : ' offline') + '"><span class="dot" style="background:' + p.color + '"></span>' +
+        escapeHtml(p.name) + (p.isHost ? ' <span class="tag">HOST</span>' : '') +
+        (p.id === myId ? ' <span class="tag">YOU</span>' : '') +
+        (p.connected ? '' : ' (away)') + '</li>';
+    } else {
+      slotsHtml += '<li class="slot open">Open slot</li>';
+    }
+  }
+  $('playerList').innerHTML = slotsHtml;
+  $('slotCount').textContent = room.players.length + ' of 4';
   const isHost = room.hostId === myId;
   $('startBtn').classList.toggle('hidden', !isHost);
   $('startBtn').disabled = room.players.filter((p) => p.connected).length < 2;

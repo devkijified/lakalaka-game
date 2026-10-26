@@ -62,9 +62,12 @@ const code = await A.evaluate(() => document.getElementById('roomCodeBig').textC
 console.log('Room code:', code);
 
 await setInput(B, '#nameInput', 'Bola');
+// Typing the 4th code letter auto joins; the Join click that follows is a
+// guarded no-op. The slot board always renders 4 slots, so count the
+// filled ones: same fact as before (two players in the room).
 await setInput(B, '#codeInput', code);
 await click(B, '#joinBtn');
-await B.waitForFunction(() => document.querySelectorAll('#playerList li').length === 2, { timeout: 20000 });
+await B.waitForFunction(() => document.querySelectorAll('#playerList li.filled').length === 2, { timeout: 20000 });
 assert('spectator joined the room', true);
 
 await click(A, '#startBtn');

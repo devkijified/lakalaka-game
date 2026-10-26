@@ -75,6 +75,37 @@ assert('B foul at power 10 passes turn back to A', B.room.turnPlayerId === A.pla
 assert('foul message explains the miss', /Foul:/.test(B.room.message) && /missed/.test(B.room.message));
 console.log('Foul message seen by room:', B.room.message);
 
-A.ws.close(); B.ws.close();
+assert('code created room stays private', A.room.isPublic === false);
+
+// Quick play: find or create a public room. Two strangers land together.
+const C = client('Chidi');
+const D = client('Dara');
+const E = client('Efe');
+const F = client('Funmi');
+await Promise.all([C.open, D.open, E.open, F.open]);
+
+C.send({ type: 'quick_join', name: 'Chidi' });
+await C.waitFor((c) => c.room && c.room.code, 'C quick joins');
+const qCode = C.room.code;
+assert('quick join opens a public room', C.room.isPublic === true && C.room.players.length === 1);
+
+D.send({ type: 'quick_join', name: 'Dara' });
+await D.waitFor((c) => c.room && c.room.players.length === 2, 'D quick joins');
+await C.waitFor((c) => c.room.players.length === 2, 'C sees D');
+assert('second quick joiner lands in the same public room', D.room.code === qCode && C.room.players.length === 2);
+
+// Once that public game has started, a new quick joiner gets a fresh room.
+C.send({ type: 'start_game' });
+await C.waitFor((c) => c.room.status === 'playing', 'public game starts');
+E.send({ type: 'quick_join', name: 'Efe' });
+await E.waitFor((c) => c.room && c.room.code, 'E quick joins');
+assert('quick joiner after start gets a fresh public room', E.room.code !== qCode && E.room.isPublic === true && E.room.players.length === 1);
+
+// Code join still works, including into a quick play room.
+F.send({ type: 'join_room', code: E.room.code, name: 'Funmi' });
+await F.waitFor((c) => c.room && c.room.players.length === 2, 'F joins by code');
+assert('code join still works into a quick room', F.room.code === E.room.code && F.room.players.length === 2);
+
+A.ws.close(); B.ws.close(); C.ws.close(); D.ws.close(); E.ws.close(); F.ws.close();
 console.log(failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);

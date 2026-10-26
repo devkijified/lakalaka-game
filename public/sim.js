@@ -932,10 +932,23 @@ function setActiveIdentity(player) {
   active.label.style.borderColor = player.color;
   active.label.style.color = player.color;
 }
+// The standing row beside the court: one slot per player, indexed by the
+// player's place in the room list, so a figure keeps its slot from the
+// lobby into the game and nobody jumps sideways when the game starts.
+const SLOT_X = 1.42, SLOT_Z0 = -0.55, SLOT_DZ = 0.85;
+function slotPos(i) { return { x: SLOT_X, z: SLOT_Z0 - i * SLOT_DZ }; }
+
+function labelWaiter(fig, p) {
+  fig.name = p.name;
+  fig.label.textContent = p.name + (p.connected ? '' : ' (away)');
+  fig.label.style.borderColor = p.color;
+  fig.label.style.color = p.color;
+}
+
 function ensureWaiters(room, turnId) {
   const others = room.players.filter((p) => p.id !== turnId);
   const seen = new Set();
-  others.forEach((p, i) => {
+  others.forEach((p) => {
     seen.add(p.id);
     let fig = waiters.get(p.id);
     if (!fig) {
@@ -943,11 +956,9 @@ function ensureWaiters(room, turnId) {
       fig.label = makeLabel();
       waiters.set(p.id, fig);
     }
-    fig.name = p.name;
-    fig.label.textContent = p.name + (p.connected ? '' : ' (away)');
-    fig.label.style.borderColor = p.color;
-    fig.label.style.color = p.color;
-    fig.root.position.set(1.42, 0, -0.55 - i * 0.85);
+    labelWaiter(fig, p);
+    const s = slotPos(room.players.indexOf(p));
+    fig.root.position.set(s.x, 0, s.z);
     fig.root.rotation.y = -Math.PI / 2; // face the court
     fig.root.visible = true;
     applyPose(fig, P.idle);
@@ -955,6 +966,41 @@ function ensureWaiters(room, turnId) {
   for (const [id, fig] of waiters) {
     if (!seen.has(id)) { fig.root.visible = false; fig.label.style.display = 'none'; }
     else fig.label.style.display = '';
+  }
+}
+
+// Lobby presence: before the game there is no turn player, so every
+// joined player stands in the row, the turn player's figure included.
+// Same instances, same slots as the game uses, so the start is a hand
+// over, not a pop: at start the first thrower walks to the start edge
+// (see setRoom) and the rest are already standing where the game keeps
+// its waiting players.
+function stageLobbyFigures(room) {
+  const seen = new Set();
+  room.players.forEach((p, i) => {
+    seen.add(p.id);
+    let fig;
+    if (p.id === room.turnPlayerId) {
+      fig = active; // its label is set by setActiveIdentity
+    } else {
+      fig = waiters.get(p.id);
+      if (!fig) {
+        fig = buildFigure();
+        fig.label = makeLabel();
+        waiters.set(p.id, fig);
+      }
+      labelWaiter(fig, p);
+    }
+    if (!sim.anim && sim.queue.length === 0) {
+      const s = slotPos(i);
+      fig.root.position.set(s.x, 0, s.z);
+      fig.root.rotation.y = -Math.PI / 2; // face the court
+    }
+    fig.root.visible = true;
+    if (fig.label) fig.label.style.display = '';
+  });
+  for (const [id, fig] of waiters) {
+    if (!seen.has(id)) { fig.root.visible = false; fig.label.style.display = 'none'; }
   }
 }
 
@@ -966,7 +1012,8 @@ const Sim3D = {
     const turnChanged = sim.turnPlayerId !== room.turnPlayerId;
     sim.turnPlayerId = room.turnPlayerId;
     if (turnP) setActiveIdentity(turnP);
-    ensureWaiters(room, room.turnPlayerId);
+    if (room.status === 'lobby') stageLobbyFigures(room);
+    else ensureWaiters(room, room.turnPlayerId);
     // Houses.
     for (let b = 1; b <= 6; b++) {
       const ownerId = room.houses ? room.houses[b] : null;
@@ -998,6 +1045,12 @@ const Sim3D = {
     // A new turn with the figure stranded on the court: walk it home.
     if (turnChanged && room.status === 'playing' && !sim.anim && sim.queue.length === 0 && sim.figureBox !== 0) {
       walkToStart();
+    }
+    // Game start hand over: the first thrower was standing in the lobby
+    // row beside the court, so walk them to the start edge.
+    if (room.status === 'playing' && !sim.anim && sim.queue.length === 0 && sim.figureBox === 0) {
+      const dx = active.root.position.x - START.x, dz = active.root.position.z - START.z;
+      if (dx * dx + dz * dz > 0.0025) walkToStart();
     }
     // Keep the stance honest when idle.
     if (!sim.anim && sim.queue.length === 0 && room.status === 'playing') {
@@ -1067,6 +1120,7 @@ canvas.addEventListener('pointerup', (ev) => {
 const projV = new THREE.Vector3();
 function placeLabel(fig, worldPos) {
   if (!fig.label) return;
+  if (!fig.label.textContent) { fig.label.style.display = 'none'; return; }
   projV.copy(worldPos); projV.y += 0.32;
   projV.project(camera);
   if (projV.z > 1) { fig.label.style.display = 'none'; return; }

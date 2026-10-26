@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232b2018'/%3E%3Crect x='6' y='6' width='20' height='20' fill='none' stroke='%23ffc857' stroke-width='2.5'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="in-lobby">
 <header class="topbar">
   <div>
     <h1>Lakalaka</h1>
@@ -17,24 +17,44 @@
 </header>
 
 <main>
+  <!-- The stage: the live 3D court, visible from the landing on. It is a
+       sibling of the views, hidden only on the winner screen. -->
+  <div class="court3d" id="court3d">
+    <canvas id="glcanvas"></canvas>
+    <div id="labelLayer" class="label-layer"></div>
+    <div id="countdown" class="countdown hidden"></div>
+  </div>
+
   <!-- Lobby -->
   <section id="lobbyView">
-    <p class="intro">Drawn in chalk, played on one leg. Create a room, share the 4 letter code, and play with real friends on their own phones. No signup.</p>
-    <label class="field">Your name
-      <input id="nameInput" type="text" maxlength="20" placeholder="Type your name" autocomplete="off">
-    </label>
-    <button id="createBtn" class="primary">Create room</button>
-    <div class="divider"><span>or join a room</span></div>
-    <label class="field">Room code
-      <input id="codeInput" type="text" maxlength="4" placeholder="ABCD" autocomplete="off" class="code-input">
-    </label>
-    <button id="joinBtn" class="secondary">Join room</button>
-    <p id="lobbyError" class="error" role="alert"></p>
+    <div id="joinCard" class="join-card">
+      <p id="inviteBanner" class="invite-banner hidden"></p>
+      <label class="field">Your name
+        <input id="nameInput" type="text" maxlength="20" placeholder="Type your name" autocomplete="off">
+      </label>
+      <button id="createBtn" class="primary">Create a room</button>
+      <button id="quickBtn" class="secondary">Quick play: find me a game</button>
+      <div class="divider"><span>or join with a code</span></div>
+      <div class="join-row">
+        <input id="codeInput" type="text" maxlength="4" placeholder="ABCD" autocomplete="off" class="code-input" aria-label="Room code">
+        <button id="joinBtn" class="secondary">Join room</button>
+      </div>
+      <p id="lobbyError" class="error" role="alert"></p>
+    </div>
+
+    <p id="introText" class="intro">Drawn in chalk, played on one leg. Create a room, share the 4 letter code, and play with real friends on their own phones. No signup.</p>
 
     <div id="roomPanel" class="room-panel hidden">
       <p class="meta">Share this code with your friends</p>
       <p id="roomCodeBig" class="room-code-big"></p>
-      <h2>Players</h2>
+      <div class="share-row">
+        <button id="copyInviteBtn" class="secondary">Copy invite link</button>
+        <button id="shareBtn" class="secondary">Share</button>
+      </div>
+      <div id="inviteQr" class="invite-qr"></div>
+      <p id="copyHint" class="meta"></p>
+      <p id="publicNote" class="meta hidden">Public game. Anyone using Quick play can land in this room.</p>
+      <h2>Players <span id="slotCount" class="slot-count"></span></h2>
       <ul id="playerList" class="player-list"></ul>
       <button id="startBtn" class="primary hidden">Start game</button>
       <p id="startHint" class="meta"></p>
@@ -57,11 +77,6 @@
     <div id="turnBanner" class="turn-banner"></div>
     <p id="messageBox" class="message" role="status"></p>
     <ul id="scoreList" class="score-list"></ul>
-
-    <div class="court3d" id="court3d">
-      <canvas id="glcanvas"></canvas>
-      <div id="labelLayer" class="label-layer"></div>
-    </div>
 
     <div id="controls" class="controls">
       <div id="throwControls" class="hidden">
@@ -96,6 +111,7 @@
   </section>
 </main>
 
+<script src="vendor/qrcode.js"></script>
 <script src="app.js"></script>
 <script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"/addons/"}}</script>
 <script type="module" src="sim.js"></script>
